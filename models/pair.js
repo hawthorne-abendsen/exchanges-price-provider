@@ -11,7 +11,7 @@ class Pair {
     constructor(base, quote) {
         this.base = base
         this.quote = quote
-        this.name = `${base.name}/${quote.name}`
+        this.name = `${quote.name}/${base.name}`
     }
 }
 

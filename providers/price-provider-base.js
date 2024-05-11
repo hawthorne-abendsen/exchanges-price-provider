@@ -4,6 +4,8 @@
  */
 
 const {default: axios} = require('axios')
+const OHLCV = require('../models/ohlcv')
+const {getBigIntPrice} = require('../utils')
 
 const defaultOptions = {
     timeout: 2000
@@ -11,6 +13,8 @@ const defaultOptions = {
 
 class PriceProviderBase {
     constructor(apiKey, secret) {
+        if (this.constructor === PriceProviderBase)
+            throw new Error('PriceProviderBase is an abstract class and cannot be instantiated')
         this.apiKey = apiKey
         this.secret = secret
         this.markets = []
@@ -58,13 +62,31 @@ class PriceProviderBase {
     /**
      *
      * @param {Pair} pair - pair to get OHLCV for
-     * @param {number} timestamp - timestamp in milliseconds
+     * @param {number} timestamp - timestamp in seconds
      * @param {number} timeframe - timeframe in minutes
      * @param {number} decimals - number of decimals for the price
      * @returns {Promise<OHLCV|null>}
      * @abstract
      */
     getOHLCV(pair, timestamp, timeframe, decimals) {
+        if (pair.base.name === pair.quote.name) {
+            const price = getBigIntPrice(1, decimals)
+            return new OHLCV({
+                open: price,
+                high: price,
+                low: price,
+                close: price,
+                volume: 0,
+                quoteVolume: 0,
+                inversed: false,
+                source: this.name,
+                decimals
+            })
+        }
+        return this.__getOHLCV(pair, timestamp, timeframe, decimals)
+    }
+
+    __getOHLCV(pair, timestamp, timeframe, decimals) {
         throw new Error('Not implemented')
     }
 
@@ -98,24 +120,13 @@ class PriceProviderBase {
     }
 
     /**
-     * @param {number} value
-     * @param {number} decimals
-     * @returns {BigInt}
-     * @protected
-     */
-    __getScaledValue(value, decimals) {
-        const scale = 10 ** decimals
-        return BigInt(Math.round(value * scale))
-    }
-
-    /**
      * @param {string} base
      * @param {string} quote
      * @returns {string}
      * @protected
      */
     __formatSymbol(base, quote) {
-        return `${base.toUpperCase()}${quote.toUpperCase()}`
+        return `${quote.toUpperCase()}${base.toUpperCase()}`
     }
 
     /**
@@ -131,6 +142,11 @@ class PriceProviderBase {
             url
         }
         return axios.request(requestOptions)
+    }
+
+    static validateTimestamp(expectedTimestamp, actualTimestamp) {
+        if (expectedTimestamp.toString() !== actualTimestamp?.toString())
+            throw new Error(`Timestamp mismatch: ${actualTimestamp} !== ${expectedTimestamp}`)
     }
 }
 

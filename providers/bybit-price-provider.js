@@ -17,10 +17,11 @@ class BybitPriceProvider extends PriceProviderBase {
             .map(market => market.symbol)
     }
 
-    async getOHLCV(pair, timestamp, timeframe, decimals) {
+    async __getOHLCV(pair, timestamp, timeframe, decimals) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
+        timestamp = timestamp * 1000
         const klinesUrl = `${baseApiUrl}/market/kline?category=spot&symbol=${symbolInfo.symbol}&interval=${timeframe}&start=${timestamp}&limit=1`
         const response = await this.__makeRequest(klinesUrl)
         const klines = response.data.result.list
@@ -28,6 +29,7 @@ class BybitPriceProvider extends PriceProviderBase {
             return null
         }
         const kline = klines[0]
+        PriceProviderBase.validateTimestamp(timestamp, kline[0])
         return new OHLCV({
             open: kline[1],
             high: kline[2],
@@ -36,10 +38,12 @@ class BybitPriceProvider extends PriceProviderBase {
             volume: Number(kline[5]),
             quoteVolume: Number(kline[6]),
             inversed: symbolInfo.inversed,
-            source: 'bybit',
+            source: this.name,
             decimals
         })
     }
+
+    name = 'bybit'
 }
 
 module.exports = BybitPriceProvider

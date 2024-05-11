@@ -4,115 +4,125 @@ const OkxPriceProvider = require('./providers/okx-price-provider')
 const KrakenPriceProvider = require('./providers/kraken-price-provider')
 const CoinbasePriceProvider = require('./providers/coinbase-price-provider')
 const GatePriceProvider = require('./providers/gate-price-provider')
-const Price = require('./models/price')
+const Pair = require('./models/pair')
+const {getAsset} = require('./assets-cache')
+const {getMedianPrice} = require('./utils')
 
 /**
- * @typedef {import('./models/pair')} Pair
+ * @typedef {import('./models/asset')} Asset
  * @typedef {import('./providers/price-provider-base')} PriceProviderBase
  */
 
-const cachedProviders = {}
+/**
+ * @typedef {Object} PriceData
+ * @property {BigInt} price
+ * @property {string[]} sources
+ */
+
+const providers = [
+    new BinancePriceProvider(),
+    new BybitPriceProvider(),
+    new OkxPriceProvider(),
+    new KrakenPriceProvider(),
+    new GatePriceProvider(),
+    new CoinbasePriceProvider()
+]
 
 /**
- * @param {string} name - provider name
- * @returns {PriceProviderBase}
+ * @param {string[]} assets - list of asset names
+ * @param {string} baseAsset - base asset name
+ * @returns {Pair[]}
  */
-function getProvider(name) {
-    switch (name) {
-        case 'binance':
-            if (!cachedProviders[name])
-                cachedProviders[name] = new BinancePriceProvider()
-            break
-        case 'bybit':
-            if (!cachedProviders[name])
-                cachedProviders[name] = new BybitPriceProvider()
-            break
-        case 'okx':
-            if (!cachedProviders[name])
-                cachedProviders[name] = new OkxPriceProvider()
-            break
-        case 'kraken':
-            if (!cachedProviders[name])
-                cachedProviders[name] = new KrakenPriceProvider()
-            break
-        case 'coinbase':
-            if (!cachedProviders[name])
-                cachedProviders[name] = new CoinbasePriceProvider()
-            break
-        case 'gate':
-            if (!cachedProviders[name])
-                cachedProviders[name] = new GatePriceProvider()
-            break
-        default:
-            return null
+function getPairs(assets, baseAsset) {
+    const pairs = []
+    const base = getAsset(baseAsset)
+    assets = assets.map(asset => getAsset(asset))
+    for (const asset of assets) {
+        if (asset.name === base.name)
+            continue
+        pairs.push(new Pair(base, asset))
     }
-    return cachedProviders[name]
+    return pairs
 }
 
 /**
  * Gets aggregated prices from multiple providers
- * @param {string[]} providers - list of provider names
- * @param {Pair[]} pairs - list of pairs
- * @param {number} timestamp - timestamp in milliseconds
- * @param {number} timeframe - timeframe in minutes
+ * @param {string[]} assets - list of asset names
+ * @param {string} baseAsset - base asset name
+ * @param {number} timestamp - timestamp UNIX in seconds
+ * @param {number} timeframe - timeframe in seconds
  * @param {number} decimals - number of decimals for the price
- * @returns {Promise<{[key: string]: { price: BigInt, sources: string[] }}>}
+ * @returns {Promise<BigInt[]>}
  */
-async function getPrices(providers, pairs, timestamp, timeframe, decimals) {
+async function getPrices(assets, baseAsset, timestamp, timeframe, decimals) {
+    const ohlcvs = await getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals)
+    /**
+     * @type {{[key: string]: Price}}
+     */
+    const prices = []
+    for (const asset of assets) {
+        const ohlcv = ohlcvs[asset]
+        if (!ohlcv) {
+            prices.push(0n)
+            continue
+        }
+        prices.push(getMedianPrice(ohlcv))
+    }
+    return prices
+}
+
+/**
+ * Gets aggregated prices from multiple providers
+ * @param {string[]} assets - list of asset names
+ * @param {string} baseAsset - base asset name
+ * @param {number} timestamp - timestamp UNIX in seconds
+ * @param {number} timeframe - timeframe in seconds
+ * @param {number} decimals - number of decimals for the price
+ * @returns {Promise<{[key: string]: OHLCV[]}>}
+ */
+async function getOHLCVs(assets, baseAsset, timestamp, timeframe, decimals) {
+    const pairs = getPairs(assets, baseAsset)
+    if (timeframe % 60 !== 0) {
+        throw new Error('Timeframe should be whole minutes')
+    }
+    timeframe = timeframe / 60
+    if (timeframe > 60) {
+        throw new Error('Timeframe should be less than or equal to 60 minutes')
+    }
     const ohlcvs = {}
     const fetchPromises = []
-    for (const providerName of providers) {
+    for (const provider of providers) {
         const fetchOHLCVs = async () => {
-            const providerOhlcvs = {}
             try {
-                const provider = getProvider(providerName)
-                if (!provider) {
-                    console.warn(`Provider ${providerName} not found`)
-                    return
-                }
                 if (Date.now() - provider.marketsLoadedAt > 1000 * 60 * 60 * 6) { //reload markets if older than 6 hours
                     try {
                         await provider.loadMarkets()
                     } catch (error) {
-                        console.error(`Error loading markets for ${provider.name}: ${error.message}`)
+                        console.warn(`Error loading markets for ${provider.name}: ${error.message}`)
                         return
                     }
                 }
                 for (const pair of pairs) {
                     try {
                         const ohlcv = await provider.getOHLCV(pair, timestamp, timeframe, decimals)
-                        if (!ohlcv)
+                        if (!ohlcv) {
                             continue
-                        providerOhlcvs[pair.name] = ohlcv
+                        }
+                        ohlcvs[pair.quote.name] = ohlcvs[pair.quote.name] || []
+                        ohlcvs[pair.quote.name].push(ohlcv)
                     } catch (error) {
-                        console.error(`Error getting price for ${pair} from ${provider.name}: ${error.message}`)
+                        console.warn(`Error getting price for ${pair.name} from ${provider.name}: ${error.message}`)
                     }
                 }
             } catch (error) {
-                console.error(`Error fetching data from ${providerName}: ${error.message}`)
+                console.error(`Error fetching data from ${provider.name}: ${error.message}`)
             }
-            ohlcvs[providerName] = providerOhlcvs
         }
         fetchPromises.push(fetchOHLCVs())
     }
     await Promise.all(fetchPromises)
-    /**
-     * @type {{[key: string]: Price}}
-     */
-    const prices = {}
-    for (const providerName of Object.keys(ohlcvs)) {
-        for (const pairName of Object.keys(ohlcvs[providerName])) {
-            const ohlcv = ohlcvs[providerName][pairName]
-            if (!prices[pairName]) {
-                prices[pairName] = new Price(timestamp, decimals)
-            }
-            prices[pairName].pushOHLCV(ohlcv)
-        }
-    }
-    return Object.keys(prices).reduce((acc, pairName) => {
-        acc[pairName] = prices[pairName].getPrice()
-        return acc
-    }, {})
+
+    return ohlcvs
 }
 
-module.exports = {getPrices}
+module.exports = {getPrices, getOHLCVs}

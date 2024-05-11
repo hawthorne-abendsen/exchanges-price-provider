@@ -17,11 +17,10 @@ class KrakenPriceProvider extends PriceProviderBase {
             .map(market => markets[market].altname)
     }
 
-    async getOHLCV(pair, timestamp, timeframe, decimals) {
+    async __getOHLCV(pair, timestamp, timeframe, decimals) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
-        timestamp = timestamp / 1000//convert to seconds
         //since is exclusive, so we need to subtract a second to get the kline that matches the timestamp
         const klinesUrl = `${baseApiUrl}/public/OHLC?pair=${symbolInfo.symbol}&interval=${timeframe}&since=${timestamp - 1}`
         const response = await this.__makeRequest(klinesUrl)
@@ -42,6 +41,7 @@ class KrakenPriceProvider extends PriceProviderBase {
         if (!kline) {
             return null
         }
+        PriceProviderBase.validateTimestamp(timestamp, kline[0])
         return new OHLCV({
             open: Number(kline[1]),
             high: Number(kline[2]),
@@ -50,14 +50,16 @@ class KrakenPriceProvider extends PriceProviderBase {
             volume: Number(kline[6]),
             quoteVolume: Number(kline[5]) * Number(kline[6]), //volume * vwap
             inversed: symbolInfo.inversed,
-            source: 'kraken',
+            source: this.name,
             decimals
         })
     }
 
     __formatSymbol(base, quote) {
-        return `${base}${quote}`
+        return `${quote}${base}`
     }
+
+    name = 'kraken'
 }
 
 module.exports = KrakenPriceProvider

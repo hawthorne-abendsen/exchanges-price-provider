@@ -1,6 +1,6 @@
 /*eslint-disable no-undef */
-const Asset = require('../models/asset')
 const Pair = require('../models/pair')
+const {getAsset} = require('../assets-cache')
 
 /**
  * @typedef {import('../providers/price-provider-base')} PriceProviderBase
@@ -21,6 +21,8 @@ async function loadMarkets(provider) {
     expect(provider.markets.length).toBeGreaterThan(0)
 }
 
+const timeframe = 5
+
 /**
  * @param {PriceProviderBase} provider
  * @param {Pair} pair
@@ -28,59 +30,64 @@ async function loadMarkets(provider) {
  * @returns {Promise<void>}
  */
 async function getPriceTest(provider, pair, expectNull = false) {
-    const price = await provider.getPrice(pair, getTimestamp(), 1, 8)
+    const ts = getTimestamp()
+    const ohlcv = await provider.getOHLCV(pair, ts, timeframe, 8)
     if (expectNull) {
-        expect(price).toBeNull()
+        expect(ohlcv).toBeNull()
         return null
     }
+    if (!ohlcv)
+        return null
+    const price = ohlcv?.price() || 0n
     expect(price).toBeGreaterThan(0n)
     return price
 }
 
 function getTimestamp() {
-    return normalizeTimestamp(Date.now() - 60000 * 5, 60000)
+    return normalizeTimestamp(Date.now() - timeframe * 2 * 60000, timeframe * 60000) / 1000
 }
 
-const assets = {
-    BTC: new Asset('BTC', ['BTC', 'XBT']),
-    USD: new Asset('USD', ['USD', 'USDT', 'USDC']),
-    ETH: new Asset('ETH', ['ETH']),
-    SOL: new Asset('SOL', ['SOL']),
-    ADA: new Asset('ADA', ['ADA']),
-    AVAX: new Asset('AVAX', ['AVAX']),
-    DOT: new Asset('DOT', ['DOT']),
-    MATIC: new Asset('MATIC', ['MATIC']),
-    LINK: new Asset('LINK', ['LINK']),
-    DAI: new Asset('DAI', ['DAI']),
-    ATOM: new Asset('ATOM', ['ATOM']),
-    XLM: new Asset('XLM', ['XLM']),
-    UNI: new Asset('UNI', ['UNI']),
-    XRP: new Asset('XRP', ['XRP']),
-    EURC: new Asset('EUR', ['EUR', 'EURC', 'EURT'])
-}
+const assets = [
+    'BTC',
+    'USD',
+    'ETH',
+    'SOL',
+    'ADA',
+    'DOT',
+    'DAI',
+    'XLM',
+    'UNI',
+    'XRP',
+    'LINK',
+    'ATOM',
+    'EURC',
+    'AVAX',
+    'MATIC'
+]
 
 const pairs = {
     pairs: [
-        new Pair(assets.BTC, assets.USD),
-        new Pair(assets.ETH, assets.USD),
-        new Pair(assets.SOL, assets.USD),
-        new Pair(assets.ADA, assets.USD),
-        new Pair(assets.AVAX, assets.USD),
-        new Pair(assets.DOT, assets.USD),
-        new Pair(assets.MATIC, assets.USD),
-        new Pair(assets.LINK, assets.USD),
-        new Pair(assets.DAI, assets.USD),
-        new Pair(assets.ATOM, assets.USD),
-        new Pair(assets.XLM, assets.USD),
-        new Pair(assets.UNI, assets.USD),
-        new Pair(assets.XRP, assets.USD),
-        new Pair(assets.EURC, assets.USD)
+        new Pair(getAsset('BTC'), getAsset('USD')),
+        new Pair(getAsset('ETH'), getAsset('USD')),
+        new Pair(getAsset('SOL'), getAsset('USD')),
+        new Pair(getAsset('ADA'), getAsset('USD')),
+        new Pair(getAsset('AVAX'), getAsset('USD')),
+        new Pair(getAsset('DOT'), getAsset('USD')),
+        new Pair(getAsset('MATIC'), getAsset('USD')),
+        new Pair(getAsset('LINK'), getAsset('USD')),
+        new Pair(getAsset('DAI'), getAsset('USD')),
+        new Pair(getAsset('ATOM'), getAsset('USD')),
+        new Pair(getAsset('XLM'), getAsset('USD')),
+        new Pair(getAsset('UNI'), getAsset('USD')),
+        new Pair(getAsset('XRP'), getAsset('USD')),
+        new Pair(getAsset('EURC'), getAsset('USD'))
     ],
-    invertedPair: new Pair(assets.USD, assets.BTC),
+    invertedPair: new Pair(getAsset('USD'), getAsset('BTC')),
     invalidPair: new Pair(
-        new Asset('UASC', ['UASC']),
-        new Asset('SOME', ['SOME'])
-    )
+        getAsset('UASC'),
+        getAsset('SOME')
+    ),
+    selfPair: new Pair(getAsset('BTC'), getAsset('BTC'))
 }
 
 module.exports = {getPriceTest, loadMarkets, getTimestamp, pairs, assets}

@@ -18,11 +18,10 @@ class GatePriceProvider extends PriceProviderBase {
             .map(market => market.id)
     }
 
-    async getOHLCV(pair, timestamp, timeframe, decimals) {
+    async __getOHLCV(pair, timestamp, timeframe, decimals) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
-        timestamp = timestamp / 1000 //convert to seconds
         const klinesUrl = `${baseUrl}/spot/candlesticks?currency_pair=${symbolInfo.symbol}&interval=${timeframe}m&from=${timestamp}&limit=1`
         const response = await this.__makeRequest(klinesUrl)
         const klines = response.data
@@ -30,22 +29,25 @@ class GatePriceProvider extends PriceProviderBase {
             return null
         }
         const kline = klines[0]
+        PriceProviderBase.validateTimestamp(timestamp, kline[0])
         return new OHLCV({
             open: kline[5],
             high: kline[3],
             low: kline[4],
             close: kline[2],
-            volume: Number(kline[6]),
-            quoteVolume: Number(kline[2]),
+            volume: kline[6],
+            quoteVolume: kline[1],
             inversed: symbolInfo.inversed,
-            source: 'gate',
+            source: this.name,
             decimals
         })
     }
 
     __formatSymbol(base, quote) {
-        return `${base}_${quote}`
+        return `${quote}_${base}`
     }
+
+    name = 'gate'
 }
 
 module.exports = GatePriceProvider

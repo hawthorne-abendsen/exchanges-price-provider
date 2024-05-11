@@ -1,9 +1,9 @@
 const OHLCV = require('../models/ohlcv')
-const PriceProvider = require('./price-provider-base')
+const PriceProviderBase = require('./price-provider-base')
 
 const baseApiUrl = 'https://api.binance.com/api/v3'
 
-class BinancePriceProvider extends PriceProvider {
+class BinancePriceProvider extends PriceProviderBase {
     constructor(apiKey, secret) {
         super(apiKey, secret)
     }
@@ -17,10 +17,11 @@ class BinancePriceProvider extends PriceProvider {
             .map(market => market.symbol)
     }
 
-    async getOHLCV(pair, timestamp, timeframe, decimals) {
+    async __getOHLCV(pair, timestamp, timeframe, decimals) {
         const symbolInfo = this.getSymbolInfo(pair)
         if (!symbolInfo)
             return null
+        timestamp = timestamp * 1000
         const klinesUrl = `${baseApiUrl}/klines?symbol=${symbolInfo.symbol}&interval=${timeframe}m&startTime=${timestamp}&limit=1`
         const response = await this.__makeRequest(klinesUrl)
         const klines = response.data
@@ -28,6 +29,7 @@ class BinancePriceProvider extends PriceProvider {
             return null
         }
         const kline = klines[0]
+        PriceProviderBase.validateTimestamp(timestamp, kline[0])
         return new OHLCV({
             open: kline[1],
             high: kline[2],
@@ -36,10 +38,12 @@ class BinancePriceProvider extends PriceProvider {
             volume: Number(kline[5]),
             quoteVolume: Number(kline[7]),
             inversed: symbolInfo.inversed,
-            source: 'binance',
+            source: this.name,
             decimals
         })
     }
+
+    name = 'binance'
 }
 
 module.exports = BinancePriceProvider

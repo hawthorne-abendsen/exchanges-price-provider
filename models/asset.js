@@ -6,6 +6,8 @@ class Asset {
     constructor(name, alias) {
         this.name = name
         this.alias = alias
+        if (this.alias.indexOf(this.name) < 0)
+            this.alias.push(this.name)
     }
 }
 
