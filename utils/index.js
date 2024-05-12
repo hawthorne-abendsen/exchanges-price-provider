@@ -14,22 +14,22 @@ function getInversedPrice(price, decimals) {
     //check if price is BigInt
     if (typeof price !== 'bigint')
         throw new Error('Price must be BigInt')
-    return BigInt(Math.pow(10, decimals * 2)) / price
+    return (10n ** BigInt(decimals * 2)) / price
 }
 
 /**
  * Convert price to BigInt value with given decimals
- * @param {number} value - price value
+ * @param {number} price - price value
  * @param {number} decimals - number of decimals
  * @returns {BigInt}
  */
-function getBigIntPrice(value, decimals) {
-    value = Number(value)
-    if (isNaN(value))
-        return BigInt(0)
+function getBigIntPrice(price, decimals) {
+    price = Number(price)
+    if (isNaN(price))
+        throw new Error('Price must be a number')
     if (isNaN(decimals))
         throw new Error('Decimals must be a number')
-    return BigInt(Math.round(value * Math.pow(10, decimals)))
+    return BigInt(Math.round(price * Math.pow(10, decimals)))
 }
 
 /**
@@ -55,22 +55,46 @@ function getVWAP(volume, quoteVolume, decimals) {
  * @returns {BigInt}
  */
 function getMedianPrice(ohlcvs) {
-    const prices = ohlcvs.map(ohlcv => ohlcv.price()).filter(price => price > 0n)
-    prices.sort((a, b) => {
-        if (a < b) return -1
-        if (a > b) return 1
-        return 0
-    })
+    const prices = ohlcvs.map(ohlcv => ohlcv.price())
+    return normalizePriceData(prices)
+}
 
-    const middle = prices.length / 2
-
-    if (prices.length % 2 === 1) { //odd, return middle
-        return prices[Math.floor(middle)]
-    } else {
-        const left = prices[middle - 1]
-        const right = prices[middle]
-        return (left + right) / BigInt(2)
+/**
+ * @param {BigInt[]} range - list of prices
+ * @return {BigInt}
+ */
+function normalizePriceData(range) {
+    function median(range) { //calculates median value from the range of values
+        const middle = Math.floor(range.length / 2)
+        if (range.length % 2)
+            return range[middle]
+        return (range[middle - 1] + range[middle]) / 2n
     }
+
+    //skip zeros
+    range = range.filter(value => value > 0n)
+    //store current range size
+    const {length} = range
+    //check if there's data to process
+    if (!length)
+        return null
+    //sort array before applying median function
+    range.sort((a, b) => Number(a - b))
+    //calculate the median price
+    let res = median(range)
+    //filter out all outliers that deviate more than 4% from the median value
+    range = range.filter(value => {
+        let scaledRatio = 100n - 100n * value / res
+        if (scaledRatio < 0n) {
+            scaledRatio = -scaledRatio
+        }
+        return scaledRatio <= 4n
+    })
+    //recalculate the median if any outliers found
+    if (range.length !== length && range.length > 1n) {
+        res = median(range)
+    }
+    return res
 }
 
 module.exports = {
